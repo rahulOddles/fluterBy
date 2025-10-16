@@ -2,36 +2,33 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum FluterByError {
-    #[msg("Escrow has expired")]
-    EscrowExpired,
+    #[msg("Invalid mint authority")]
+    InvalidMintAuthority,
     
-    #[msg("Escrow has not expired yet")]
-    EscrowNotExpired,
-    
-    #[msg("Insufficient funds in escrow")]
+    #[msg("Insufficient funds for distribution")]
     InsufficientFunds,
-    
-    #[msg("Invalid reward asset type")]
-    InvalidRewardAsset,
-    
-    #[msg("Unauthorized minter")]
-    UnauthorizedMinter,
     
     #[msg("Invalid escrow wallet index")]
     InvalidEscrowWalletIndex,
     
+    #[msg("Escrow has expired")]
+    EscrowExpired,
+    
+    #[msg("Escrow not found")]
+    EscrowNotFound,
+    
+    #[msg("Unauthorized minter")]
+    UnauthorizedMinter,
+    
     #[msg("Token burn amount exceeds balance")]
     InsufficientTokenBalance,
     
-    #[msg("Escrow account not found")]
-    EscrowNotFound,
+    #[msg("Distribution calculation overflow")]
+    DistributionCalculationOverflow,
     
-    #[msg("Invalid mint authority")]
-    InvalidMintAuthority,
+    #[msg("Invalid distribution amount")]
+    InvalidDistributionAmount,
     
-    #[msg("Reward calculation overflow")]
-    RewardCalculationOverflow,
-    
-    #[msg("Escrow wallet rotation error")]
-    EscrowWalletRotationError,
+    #[msg("Escrow has not expired yet")]
+    EscrowNotExpired,
 }

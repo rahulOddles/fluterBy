@@ -1,78 +1,155 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, Mint, TokenAccount, Transfer};
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token;
 use crate::state::*;
 use crate::error::FluterByError;
-use crate::event::*;
+use crate::events::*;
 
-pub fn initialize_escrow(
-    ctx: Context<InitializeEscrow>,
-    reward_asset: RewardAsset,
-    total_reward_amount: u64,
-    total_token_supply: u64,
-    expires_at: i64,
+pub fn initialize_escrow_wallet(
+    _ctx: Context<InitializeEscrowWallet>,
+    _token: Pubkey,
+    wallet_index: u8,
 ) -> Result<()> {
-    let escrow_account = &mut ctx.accounts.escrow_account;
-    let clock = Clock::get()?;
-    
-    // Initialize escrow account
-    escrow_account.mint = ctx.accounts.mint.key();
-    escrow_account.minter = ctx.accounts.minter.key();
-    escrow_account.reward_asset = reward_asset;
-    escrow_account.total_reward_amount = total_reward_amount;
-    escrow_account.remaining_reward_amount = total_reward_amount;
-    escrow_account.total_token_supply = total_token_supply;
-    escrow_account.burned_token_amount = 0;
-    escrow_account.escrow_wallet_index = 0; // Will be set during lock_funds
-    escrow_account.created_at = clock.unix_timestamp;
-    escrow_account.expires_at = expires_at;
-    escrow_account.is_active = true;
-    
-    emit!(EscrowCreated {
-        mint: ctx.accounts.mint.key(),
-        minter: ctx.accounts.minter.key(),
-        reward_asset: reward_asset as u8,
-        total_reward_amount,
-        total_token_supply,
-        escrow_wallet_index: 0,
-        expires_at,
-        timestamp: clock.unix_timestamp,
-    });
-    
+    msg!("Initialized escrow wallet {}", wallet_index);
     Ok(())
 }
 
 pub fn lock_funds(
     ctx: Context<LockFunds>,
-    reward_amount: u64,
-    escrow_wallet_index: u8,
+    token: Pubkey,
+    reward_token: Pubkey,
+    minter: Pubkey,
+    reward_value: u64,
+    token_supply: u64,
+    expiry: i64,
 ) -> Result<()> {
-    let escrow_account = &mut ctx.accounts.escrow_account;
+    let escrow_lock_account = &mut ctx.accounts.escrow_lock_account;
     let clock = Clock::get()?;
     
-    // Validate escrow wallet index
+    // Validate reward value is greater than 0
     require!(
-        escrow_wallet_index < 5,
-        FluterByError::InvalidEscrowWalletIndex
+        reward_value > 0,
+        FluterByError::InvalidDistributionAmount
     );
     
-    // Validate reward amount
+    // Validate token supply is greater than 0
     require!(
-        reward_amount <= escrow_account.total_reward_amount,
-        FluterByError::InsufficientFunds
+        token_supply > 0,
+        FluterByError::InvalidDistributionAmount
     );
     
-    // Update escrow account
-    escrow_account.escrow_wallet_index = escrow_wallet_index;
+    // Calculate reward per wallet (equal distribution across 5 wallets)
+    let reward_per_wallet = reward_value
+        .checked_div(5)
+        .ok_or(FluterByError::DistributionCalculationOverflow)?;
     
-    // Transfer funds to escrow (this would be handled by the frontend/backend)
-    // The actual transfer logic depends on whether it's SOL or USDC
+    // Validate that the division is clean (no remainder)
+    require!(
+        reward_per_wallet * 5 == reward_value,
+        FluterByError::InvalidDistributionAmount
+    );
+    
+    // Validate minter matches the signer
+    require!(
+        minter == ctx.accounts.minter.key(),
+        FluterByError::UnauthorizedMinter
+    );
+    
+    // Transfer reward tokens from minter to each of the 5 escrow wallets
+    // Each wallet receives reward_per_wallet amount
+    msg!("Transferring {} tokens to each of 5 escrow wallets...", reward_per_wallet);
+    
+    // Transfer to wallet 1
+    let cpi_accounts_1 = token::Transfer {
+        from: ctx.accounts.minter_reward_account.to_account_info(),
+        to: ctx.accounts.escrow_wallet_1.to_account_info(),
+        authority: ctx.accounts.minter.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx_1 = CpiContext::new(cpi_program.clone(), cpi_accounts_1);
+    token::transfer(cpi_ctx_1, reward_per_wallet)?;
+    msg!("Transferred {} to wallet 1", reward_per_wallet);
+    
+    // Transfer to wallet 2
+    let cpi_accounts_2 = token::Transfer {
+        from: ctx.accounts.minter_reward_account.to_account_info(),
+        to: ctx.accounts.escrow_wallet_2.to_account_info(),
+        authority: ctx.accounts.minter.to_account_info(),
+    };
+    let cpi_ctx_2 = CpiContext::new(cpi_program.clone(), cpi_accounts_2);
+    token::transfer(cpi_ctx_2, reward_per_wallet)?;
+    msg!("Transferred {} to wallet 2", reward_per_wallet);
+    
+    // Transfer to wallet 3
+    let cpi_accounts_3 = token::Transfer {
+        from: ctx.accounts.minter_reward_account.to_account_info(),
+        to: ctx.accounts.escrow_wallet_3.to_account_info(),
+        authority: ctx.accounts.minter.to_account_info(),
+    };
+    let cpi_ctx_3 = CpiContext::new(cpi_program.clone(), cpi_accounts_3);
+    token::transfer(cpi_ctx_3, reward_per_wallet)?;
+    msg!("Transferred {} to wallet 3", reward_per_wallet);
+    
+    // Transfer to wallet 4
+    let cpi_accounts_4 = token::Transfer {
+        from: ctx.accounts.minter_reward_account.to_account_info(),
+        to: ctx.accounts.escrow_wallet_4.to_account_info(),
+        authority: ctx.accounts.minter.to_account_info(),
+    };
+    let cpi_ctx_4 = CpiContext::new(cpi_program.clone(), cpi_accounts_4);
+    token::transfer(cpi_ctx_4, reward_per_wallet)?;
+    msg!("Transferred {} to wallet 4", reward_per_wallet);
+    
+    // Transfer to wallet 5
+    let cpi_accounts_5 = token::Transfer {
+        from: ctx.accounts.minter_reward_account.to_account_info(),
+        to: ctx.accounts.escrow_wallet_5.to_account_info(),
+        authority: ctx.accounts.minter.to_account_info(),
+    };
+    let cpi_ctx_5 = CpiContext::new(cpi_program, cpi_accounts_5);
+    token::transfer(cpi_ctx_5, reward_per_wallet)?;
+    msg!("Transferred {} to wallet 5", reward_per_wallet);
+    
+    msg!("✅ All reward tokens transferred to escrow wallets!");
+    
+    // Store the 5 escrow wallet addresses
+    let escrow_wallets = [
+        ctx.accounts.escrow_wallet_1.key(),
+        ctx.accounts.escrow_wallet_2.key(),
+        ctx.accounts.escrow_wallet_3.key(),
+        ctx.accounts.escrow_wallet_4.key(),
+        ctx.accounts.escrow_wallet_5.key(),
+    ];
+    
+    // Initialize escrow lock account
+    escrow_lock_account.token = token;
+    escrow_lock_account.reward_token = reward_token;
+    escrow_lock_account.minter = minter;
+    escrow_lock_account.total_reward_value = reward_value;
+    escrow_lock_account.remaining_reward_value = reward_value;
+    escrow_lock_account.reward_per_wallet = reward_per_wallet;
+    escrow_lock_account.total_token_supply = token_supply;
+    escrow_lock_account.escrow_wallets = escrow_wallets;
+    escrow_lock_account.expires_at = expiry;
+    escrow_lock_account.created_at = clock.unix_timestamp;
+    escrow_lock_account.is_active = true;
+    
+    msg!("Token: {}", token);
+    msg!("Reward Token: {}", reward_token);
+    msg!("Total Reward Value: {}", reward_value);
+    msg!("Reward per wallet: {}", reward_per_wallet);
+    msg!("Token Supply: {}", token_supply);
+    msg!("Distribution across 5 wallets:");
+    msg!("  Wallet 1: {}", escrow_wallets[0]);
+    msg!("  Wallet 2: {}", escrow_wallets[1]);
+    msg!("  Wallet 3: {}", escrow_wallets[2]);
+    msg!("  Wallet 4: {}", escrow_wallets[3]);
+    msg!("  Wallet 5: {}", escrow_wallets[4]);
     
     emit!(FundsLocked {
-        mint: escrow_account.mint,
-        minter: escrow_account.minter,
-        reward_amount,
-        escrow_wallet_index,
+        mint: token,
+        minter,
+        value: reward_value,
+        expires_at: expiry,
         timestamp: clock.unix_timestamp,
     });
     
@@ -83,214 +160,298 @@ pub fn redeem_rewards(
     ctx: Context<RedeemRewards>,
     burn_amount: u64,
 ) -> Result<()> {
-    let escrow_account = &mut ctx.accounts.escrow_account;
     let clock = Clock::get()?;
     
-    // Validate escrow is still active and not expired
+    // Validate escrow is still active
     require!(
-        escrow_account.is_active,
+        ctx.accounts.escrow_lock_account.is_active,
         FluterByError::EscrowNotFound
     );
     
+    // Validate escrow has not expired
     require!(
-        clock.unix_timestamp < escrow_account.expires_at,
+        clock.unix_timestamp < ctx.accounts.escrow_lock_account.expires_at,
         FluterByError::EscrowExpired
     );
     
-    // Validate user has enough tokens
+    // Validate user has enough tokens to burn
     require!(
-        burn_amount <= ctx.accounts.user_token_account.amount,
+        ctx.accounts.user_token_account.amount >= burn_amount,
         FluterByError::InsufficientTokenBalance
     );
     
-    // Calculate proportional reward
-    let reward_amount = (burn_amount as u128)
-        .checked_mul(escrow_account.remaining_reward_amount as u128)
-        .and_then(|x| x.checked_div(escrow_account.total_token_supply as u128))
-        .ok_or(FluterByError::RewardCalculationOverflow)? as u64;
-    
-    // Validate sufficient funds in escrow
+    // Validate burn amount is greater than 0
     require!(
-        reward_amount <= escrow_account.remaining_reward_amount,
+        burn_amount > 0,
+        FluterByError::InvalidDistributionAmount
+    );
+    
+    // Calculate proportional reward based on burned tokens
+    // reward = (burn_amount / total_token_supply) * remaining_reward_value
+    let reward_amount = (burn_amount as u128)
+        .checked_mul(ctx.accounts.escrow_lock_account.remaining_reward_value as u128)
+        .and_then(|x| x.checked_div(ctx.accounts.escrow_lock_account.total_token_supply as u128))
+        .ok_or(FluterByError::DistributionCalculationOverflow)? as u64;
+    
+    // Validate there are enough rewards remaining
+    require!(
+        reward_amount <= ctx.accounts.escrow_lock_account.remaining_reward_value,
         FluterByError::InsufficientFunds
     );
     
-    // Update escrow account
-    escrow_account.burned_token_amount = escrow_account.burned_token_amount
-        .checked_add(burn_amount)
-        .ok_or(FluterByError::RewardCalculationOverflow)?;
+    // Burn the user's FLBY tokens
+    msg!("Burning {} FLBY tokens...", burn_amount);
+    let cpi_accounts_burn = token::Burn {
+        mint: ctx.accounts.token_mint.to_account_info(),
+        from: ctx.accounts.user_token_account.to_account_info(),
+        authority: ctx.accounts.user.to_account_info(),
+    };
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    let cpi_ctx_burn = CpiContext::new(cpi_program.clone(), cpi_accounts_burn);
+    token::burn(cpi_ctx_burn, burn_amount)?;
+    msg!("✅ Burned {} FLBY tokens", burn_amount);
     
-    escrow_account.remaining_reward_amount = escrow_account.remaining_reward_amount
+    // Calculate how much to take from each of the 5 escrow wallets
+    // Distribute the withdrawal proportionally from each wallet
+    let reward_per_wallet = reward_amount
+        .checked_div(5)
+        .ok_or(FluterByError::DistributionCalculationOverflow)?;
+    
+    let remainder = reward_amount % 5;
+    
+    msg!("Transferring {} reward tokens from 5 escrow wallets to user...", reward_amount);
+    msg!("Base amount per wallet: {}, Remainder: {}", reward_per_wallet, remainder);
+    
+    // Get the PDA signer seeds for authority
+    let token_key = ctx.accounts.escrow_lock_account.token;
+    let minter_key = ctx.accounts.escrow_lock_account.minter;
+    let bump = ctx.bumps.escrow_lock_account;
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        b"escrow_lock",
+        token_key.as_ref(),
+        minter_key.as_ref(),
+        &[bump],
+    ]];
+    
+    // Transfer from escrow wallet 1 (gets extra from remainder if any)
+    let amount_1 = if remainder > 0 { reward_per_wallet + 1 } else { reward_per_wallet };
+    if amount_1 > 0 {
+        let cpi_accounts_1 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_1.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_1 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_1, signer_seeds);
+        token::transfer(cpi_ctx_1, amount_1)?;
+        msg!("Transferred {} from wallet 1", amount_1);
+    }
+    
+    // Transfer from escrow wallet 2 (gets extra from remainder if any)
+    let amount_2 = if remainder > 1 { reward_per_wallet + 1 } else { reward_per_wallet };
+    if amount_2 > 0 {
+        let cpi_accounts_2 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_2.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_2 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_2, signer_seeds);
+        token::transfer(cpi_ctx_2, amount_2)?;
+        msg!("Transferred {} from wallet 2", amount_2);
+    }
+    
+    // Transfer from escrow wallet 3 (gets extra from remainder if any)
+    let amount_3 = if remainder > 2 { reward_per_wallet + 1 } else { reward_per_wallet };
+    if amount_3 > 0 {
+        let cpi_accounts_3 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_3.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_3 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_3, signer_seeds);
+        token::transfer(cpi_ctx_3, amount_3)?;
+        msg!("Transferred {} from wallet 3", amount_3);
+    }
+    
+    // Transfer from escrow wallet 4 (gets extra from remainder if any)
+    let amount_4 = if remainder > 3 { reward_per_wallet + 1 } else { reward_per_wallet };
+    if amount_4 > 0 {
+        let cpi_accounts_4 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_4.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_4 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_4, signer_seeds);
+        token::transfer(cpi_ctx_4, amount_4)?;
+        msg!("Transferred {} from wallet 4", amount_4);
+    }
+    
+    // Transfer from escrow wallet 5
+    if reward_per_wallet > 0 {
+        let cpi_accounts_5 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_5.to_account_info(),
+            to: ctx.accounts.user_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_5 = CpiContext::new_with_signer(cpi_program, cpi_accounts_5, signer_seeds);
+        token::transfer(cpi_ctx_5, reward_per_wallet)?;
+        msg!("Transferred {} from wallet 5", reward_per_wallet);
+    }
+    
+    // Update remaining reward value
+    ctx.accounts.escrow_lock_account.remaining_reward_value = ctx.accounts.escrow_lock_account.remaining_reward_value
         .checked_sub(reward_amount)
-        .ok_or(FluterByError::RewardCalculationOverflow)?;
+        .ok_or(FluterByError::DistributionCalculationOverflow)?;
     
-    // Burn tokens (this would be handled by the frontend/backend)
-    // The actual burn logic depends on the token program
-    
-    // Transfer rewards to user (this would be handled by the frontend/backend)
-    // The actual transfer logic depends on whether it's SOL or USDC
+    msg!("✅ Redemption complete!");
+    msg!("FLBY tokens burned: {}", burn_amount);
+    msg!("Reward tokens received: {}", reward_amount);
+    msg!("Remaining rewards in escrow: {}", ctx.accounts.escrow_lock_account.remaining_reward_value);
     
     emit!(RewardsRedeemed {
-        mint: escrow_account.mint,
+        token: ctx.accounts.escrow_lock_account.token,
         user: ctx.accounts.user.key(),
         tokens_burned: burn_amount,
-        rewards_redeemed: reward_amount,
-        remaining_escrow_amount: escrow_account.remaining_reward_amount,
+        rewards_received: reward_amount,
+        remaining_rewards: ctx.accounts.escrow_lock_account.remaining_reward_value,
         timestamp: clock.unix_timestamp,
     });
     
     Ok(())
 }
 
-pub fn claim_remaining_rewards(
-    ctx: Context<ClaimRemainingRewards>,
+pub fn withdraw_expired_rewards(
+    ctx: Context<WithdrawExpiredRewards>,
 ) -> Result<()> {
-    let escrow_account = &mut ctx.accounts.escrow_account;
     let clock = Clock::get()?;
     
-    // Validate escrow has expired
+    // Validate escrow is still active
     require!(
-        clock.unix_timestamp >= escrow_account.expires_at,
+        ctx.accounts.escrow_lock_account.is_active,
+        FluterByError::EscrowNotFound
+    );
+    
+    // Validate escrow HAS expired (opposite of redeem_rewards)
+    require!(
+        clock.unix_timestamp >= ctx.accounts.escrow_lock_account.expires_at,
         FluterByError::EscrowNotExpired
     );
     
-    // Validate minter is authorized
+    // Validate caller is the minter
     require!(
-        escrow_account.minter == ctx.accounts.minter.key(),
+        ctx.accounts.escrow_lock_account.minter == ctx.accounts.minter.key(),
         FluterByError::UnauthorizedMinter
     );
     
-    let remaining_amount = escrow_account.remaining_reward_amount;
+    let remaining_rewards = ctx.accounts.escrow_lock_account.remaining_reward_value;
     
-    // Transfer remaining funds to minter (this would be handled by the frontend/backend)
-    // The actual transfer logic depends on whether it's SOL or USDC
+    // Check if there are any rewards left to withdraw
+    require!(
+        remaining_rewards > 0,
+        FluterByError::InsufficientFunds
+    );
     
-    // Close escrow account
-    escrow_account.is_active = false;
-    escrow_account.remaining_reward_amount = 0;
+    msg!("🔓 Escrow has expired. Minter withdrawing remaining rewards...");
+    msg!("Remaining rewards to withdraw: {}", remaining_rewards);
     
-    emit!(RemainingRewardsClaimed {
-        mint: escrow_account.mint,
-        minter: escrow_account.minter,
-        remaining_amount,
+    // Get the PDA signer seeds for authority
+    let token_key = ctx.accounts.escrow_lock_account.token;
+    let minter_key = ctx.accounts.escrow_lock_account.minter;
+    let bump = ctx.bumps.escrow_lock_account;
+    let signer_seeds: &[&[&[u8]]] = &[&[
+        b"escrow_lock",
+        token_key.as_ref(),
+        minter_key.as_ref(),
+        &[bump],
+    ]];
+    
+    // Get current balance from each escrow wallet and transfer all to minter
+    let wallet_1_balance = ctx.accounts.escrow_wallet_1.amount;
+    let wallet_2_balance = ctx.accounts.escrow_wallet_2.amount;
+    let wallet_3_balance = ctx.accounts.escrow_wallet_3.amount;
+    let wallet_4_balance = ctx.accounts.escrow_wallet_4.amount;
+    let wallet_5_balance = ctx.accounts.escrow_wallet_5.amount;
+    
+    let total_to_withdraw = wallet_1_balance + wallet_2_balance + wallet_3_balance + 
+                            wallet_4_balance + wallet_5_balance;
+    
+    msg!("Total rewards in escrow wallets: {}", total_to_withdraw);
+    
+    let cpi_program = ctx.accounts.token_program.to_account_info();
+    
+    // Transfer all funds from wallet 1
+    if wallet_1_balance > 0 {
+        let cpi_accounts_1 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_1.to_account_info(),
+            to: ctx.accounts.minter_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_1 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_1, signer_seeds);
+        token::transfer(cpi_ctx_1, wallet_1_balance)?;
+        msg!("Transferred {} from wallet 1", wallet_1_balance);
+    }
+    
+    // Transfer all funds from wallet 2
+    if wallet_2_balance > 0 {
+        let cpi_accounts_2 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_2.to_account_info(),
+            to: ctx.accounts.minter_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_2 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_2, signer_seeds);
+        token::transfer(cpi_ctx_2, wallet_2_balance)?;
+        msg!("Transferred {} from wallet 2", wallet_2_balance);
+    }
+    
+    // Transfer all funds from wallet 3
+    if wallet_3_balance > 0 {
+        let cpi_accounts_3 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_3.to_account_info(),
+            to: ctx.accounts.minter_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_3 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_3, signer_seeds);
+        token::transfer(cpi_ctx_3, wallet_3_balance)?;
+        msg!("Transferred {} from wallet 3", wallet_3_balance);
+    }
+    
+    // Transfer all funds from wallet 4
+    if wallet_4_balance > 0 {
+        let cpi_accounts_4 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_4.to_account_info(),
+            to: ctx.accounts.minter_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_4 = CpiContext::new_with_signer(cpi_program.clone(), cpi_accounts_4, signer_seeds);
+        token::transfer(cpi_ctx_4, wallet_4_balance)?;
+        msg!("Transferred {} from wallet 4", wallet_4_balance);
+    }
+    
+    // Transfer all funds from wallet 5
+    if wallet_5_balance > 0 {
+        let cpi_accounts_5 = token::Transfer {
+            from: ctx.accounts.escrow_wallet_5.to_account_info(),
+            to: ctx.accounts.minter_reward_account.to_account_info(),
+            authority: ctx.accounts.escrow_lock_account.to_account_info(),
+        };
+        let cpi_ctx_5 = CpiContext::new_with_signer(cpi_program, cpi_accounts_5, signer_seeds);
+        token::transfer(cpi_ctx_5, wallet_5_balance)?;
+        msg!("Transferred {} from wallet 5", wallet_5_balance);
+    }
+    
+    // Mark escrow as inactive
+    ctx.accounts.escrow_lock_account.is_active = false;
+    ctx.accounts.escrow_lock_account.remaining_reward_value = 0;
+    
+    msg!("✅ Withdrawal complete! Escrow closed.");
+    msg!("Total withdrawn: {}", total_to_withdraw);
+    msg!("Minter received all remaining rewards.");
+    
+    emit!(ExpiredRewardsWithdrawn {
+        token: ctx.accounts.escrow_lock_account.token,
+        minter: ctx.accounts.escrow_lock_account.minter,
+        amount_withdrawn: total_to_withdraw,
         timestamp: clock.unix_timestamp,
     });
     
     Ok(())
-}
-
-pub fn register_minter(
-    ctx: Context<RegisterMinter>,
-) -> Result<()> {
-    let minter_account = &mut ctx.accounts.minter_account;
-    let clock = Clock::get()?;
-    
-    // Initialize minter account
-    minter_account.minter = ctx.accounts.minter.key();
-    minter_account.total_escrows_created = 0;
-    minter_account.total_rewards_locked = 0;
-    minter_account.total_rewards_claimed = 0;
-    minter_account.created_at = clock.unix_timestamp;
-    
-    emit!(MinterRegistered {
-        minter: ctx.accounts.minter.key(),
-        total_escrows: 0,
-        timestamp: clock.unix_timestamp,
-    });
-    
-    Ok(())
-}
-
-pub fn register_distributor(
-    ctx: Context<RegisterDistributor>,
-) -> Result<()> {
-    let distributor_account = &mut ctx.accounts.distributor_account;
-    let clock = Clock::get()?;
-    
-    // Initialize distributor account
-    distributor_account.distributor = ctx.accounts.distributor.key();
-    distributor_account.total_tokens_burned = 0;
-    distributor_account.total_rewards_redeemed = 0;
-    distributor_account.created_at = clock.unix_timestamp;
-    
-    emit!(DistributorRegistered {
-        distributor: ctx.accounts.distributor.key(),
-        timestamp: clock.unix_timestamp,
-    });
-    
-    Ok(())
-}
-
-pub fn initialize_reward_wallets(
-    ctx: Context<InitializeRewardWallets>,
-    wallets: [Pubkey; 5],
-) -> Result<()> {
-    let reward_wallets = &mut ctx.accounts.reward_wallets;
-    let clock = Clock::get()?;
-    
-    // Initialize reward wallets
-    reward_wallets.wallets = wallets;
-    reward_wallets.current_index = 0;
-    reward_wallets.total_rotations = 0;
-    
-    emit!(EscrowWalletRotated {
-        old_index: 0,
-        new_index: 0,
-        total_rotations: 0,
-        timestamp: clock.unix_timestamp,
-    });
-    
-    Ok(())
-}
-
-// Additional account structures for registration
-#[derive(Accounts)]
-pub struct RegisterMinter {
-    #[account(
-        init,
-        payer = minter,
-        space = 8 + MinterAccount::INIT_SPACE,
-        seeds = [b"minter", minter.key().as_ref()],
-        bump
-    )]
-    pub minter_account: Account<'info, MinterAccount>,
-    
-    #[account(mut)]
-    pub minter: Signer<'info>,
-    
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct RegisterDistributor {
-    #[account(
-        init,
-        payer = distributor,
-        space = 8 + DistributorAccount::INIT_SPACE,
-        seeds = [b"distributor", distributor.key().as_ref()],
-        bump
-    )]
-    pub distributor_account: Account<'info, DistributorAccount>,
-    
-    #[account(mut)]
-    pub distributor: Signer<'info>,
-    
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct InitializeRewardWallets {
-    #[account(
-        init,
-        payer = authority,
-        space = 8 + RewardWallets::INIT_SPACE,
-        seeds = [b"reward_wallets"],
-        bump
-    )]
-    pub reward_wallets: Account<'info, RewardWallets>,
-    
-    #[account(mut)]
-    pub authority: Signer<'info>,
-    
-    pub system_program: Program<'info, System>,
 }

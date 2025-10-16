@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-fluter_by = "FFdPdCrYqKohNP2wsN3peB8YLpwndz3qaoqRAoRozSRm"
+fluter_by = "8zsKxbVSrBUUYWDdSxkNAjS1SL4a4yR7yy7TZBH6qS1d"
 
 [registry]
 url = "https://api.apr.dev"
@@ -16,4 +16,4 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
